@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>テーママップ作成ツール</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <style>
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .input-container {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 20px;
+            gap: 10px;
+        }
+        input[type="text"] {
+            padding: 10px;
+            width: 300px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        select {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .info-container {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+        .info-box {
+            background-color: #f8f9fa;
+            border-left: 4px solid #357abd;
+            padding: 10px 15px;
+            border-radius: 0 4px 4px 0;
+            font-family: monospace;
+            margin-bottom: 20px;
+            max-width: 600px;
+        }
+        .info-box p {
+            margin: 5px 0;
+            color: #555;
+            font-size: 14px;
+        }
+        #status {
+            text-align: center;
+            margin: 20px 0;
+            color: #666;
+        }
+        #graph-container {
+            width: 100%;
+            height: 600px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 20px;
+        }
+        .node {
+            cursor: pointer;
+        }
+        .node circle {
+            fill: #fff;
+            stroke: #4CAF50;
+            stroke-width: 2px;
+        }
+        .node text {
+            font-size: 12px;
+            text-anchor: start;
+        }
+        .link {
+            fill: none;
+            stroke: #ccc;
+            stroke-width: 1.5px;
+        }
+        .tooltip {
+            position: absolute;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>テーママップ作成ツール</h1>
+        <div class="info-container">
+            <div class="info-box">
+                <p>・<a href="https://ja.wikipedia.org">ウィキペディア</a>のカテゴリーデータを利用しています。</p>
+                <p>・データはMediaWiki APIから取得しています。</p>
+            </div>
+        </div>
+        <div class="input-container">
+            <input type="text" id="keyword" placeholder="キーワードを入力" value="イヌ">
+            <select id="depth">
+                <option value="1">深さ: 1</option>
+                <option value="2">深さ: 2</option>
+                <option value="3" selected>深さ: 3</option>
+                <option value="4">深さ: 4</option>
+            </select>
+            <button id="generate">テーママップを生成</button>
+        </div>
+        <div id="status">キーワードを入力して「テーママップを生成」ボタンをクリックしてください</div>
+        <div id="graph-container"></div>
+    </div>
+
+    <script>
+        // グローバル変数
+        let alreadySet = new Set();
+        let graphData = { nodes: [], links: [] };
+        let simulation;
+
+        // ボタンのイベントリスナー
+        document.getElementById('generate').addEventListener('click', async () => {
+            const keyword = document.getElementById('keyword').value.trim();
+            const maxDepth = parseInt(document.getElementById('depth').value);
+            
+            if (!keyword) {
+                alert('キーワードを入力してください');
+                return;
+            }
+            
+            // 生成開始
+            const generateButton = document.getElementById('generate');
+            generateButton.disabled = true;
+            document.getElementById('status').textContent = `「${keyword}」のテーママップを生成中...`;
+            
+            // グラフデータをリセット
+            graphData = { 
+                nodes: [{ id: keyword, group: 1, depth: 0 }], 
+                links: [] 
+            };
+            alreadySet = new Set([keyword]);
+            
+            try {
+                // リダイレクトをチェック
+                const redirectKeyword = await checkInWiki(keyword);
+                const finalKeyword = redirectKeyword || keyword;
+                
+                if (redirectKeyword) {
+                    document.getElementById('status').textContent = `「${keyword}」は「${redirectKeyword}」にリダイレクトされました。テーママップを生成中...`;
+                    // ノードの更新
+                    graphData.nodes[0].id = finalKeyword;
+                    alreadySet.delete(keyword);
+                    alreadySet.add(finalKeyword);
+                }
+                
+                // カテゴリツリーを生成
+                await buildCategoryTree(finalKeyword, 0, maxDepth);
+                
+                // グラフを描画
+                drawGraph();
+                
+                document.getElementById('status').textContent = `「${finalKeyword}」のテーママップが完成しました。`;
+            } catch (error) {
+                console.error('エラー:', error);
+                document.getElementById('status').textContent = `エラーが発生しました: ${error.message}`;
+            } finally {
+                generateButton.disabled = false;
+            }
+        });
+
+        // MediaWiki APIを使ってWikipediaのリダイレクトをチェックする関数
+        async function checkInWiki(keyword) {
+            // MediaWiki APIのエンドポイント
+            const apiUrl = 'https://ja.wikipedia.org/w/api.php';
+            
+            // リダイレクト先を取得するためのパラメータ
+            const params = {
+                action: 'query',
+                titles: keyword,
+                redirects: 1,       // リダイレクトを自動的に解決
+                format: 'json',
+                origin: '*'         // CORS対応
+            };
+            
+            // URLパラメータを構築
+            const queryString = Object.entries(params)
+                .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
+                .join('&');
+            
+            try {
+                const response = await fetch(`${apiUrl}?${queryString}`);
+                const data = await response.json();
+                
+                // リダイレクトの確認
+                if (data.query.redirects && data.query.redirects.length > 0) {
+                    return data.query.redirects[0].to;
+                }
+                
+                // ページが存在するか確認
+                const pages = data.query.pages;
+                const pageId = Object.keys(pages)[0];
+                
+                if (pageId === "-1") {
+                    throw new Error('該当するWikipediaの記事が見つかりませんでした');
+                }
+                
+                return null; // リダイレクトなし
+            } catch (error) {
+                console.error('リダイレクトチェックエラー:', error);
+                throw error;
+            }
+        }
+
+        // MediaWiki APIを使ってWikipediaからカテゴリリストを取得する関数
+        async function getCategoryList(keyword) {
+            // MediaWiki APIのエンドポイント
+            const apiUrl = 'https://ja.wikipedia.org/w/api.php';
+            let categoryList = [];
+            let continueToken = null;
+            
+            do {
+                // APIリクエスト用パラメータ
+                const params = {
+                    action: 'query',
+                    prop: 'categories',
+                    titles: keyword,
+                    cllimit: 500,     // 一度に取得するカテゴリの最大数
+                    format: 'json',
+                    origin: '*'       // CORS対応
+                };
+                
+                // 継続パラメータがある場合は追加
+                if (continueToken) {
+                    params.clcontinue = continueToken;
+                }
+                
+                // URLパラメータを構築
+                const queryString = Object.entries(params)
+                    .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
+                    .join('&');
+                
+                try {
+                    const response = await fetch(`${apiUrl}?${queryString}`);
+                    const data = await response.json();
+                    
+                    // ページデータを処理
+                    const pages = data.query.pages;
+                    const pageId = Object.keys(pages)[0];
+                    
+                    if (pageId !== "-1" && pages[pageId].categories) {
+                        pages[pageId].categories.forEach(category => {
+                            const categoryTitle = category.title;
+                            // 特定の単語を含むカテゴリーを除外
+                            if (!categoryTitle.includes('記事') && 
+                                !categoryTitle.includes('ページ') && 
+                                !categoryTitle.includes('リンク')) {
+                                categoryList.push(categoryTitle);
+                            }
+                        });
+                    }
+                    
+                    // 継続トークンの取得
+                    continueToken = data.continue ? data.continue.clcontinue : null;
+                    
+                } catch (error) {
+                    console.error('カテゴリ取得エラー:', error);
+                    break;
+                }
+            } while (continueToken);
+            
+            return categoryList;
+        }
+
+        // カテゴリツリーを再帰的に構築する関数
+        async function buildCategoryTree(keyword, depth, maxDepth) {
+            // 最大深さに達したら終了
+            if (depth >= maxDepth) {
+                return;
+            }
+            
+            // カテゴリリストを取得
+            const categoryList = await getCategoryList(keyword);
+            const cleanKeyword = keyword.replace(/^Category:/, '');
+            
+            // 各カテゴリについて処理
+            for (const category of categoryList) {
+                // 既に処理済みのカテゴリならスキップ
+                if (alreadySet.has(category)) {
+                    continue;
+                }
+                
+                // カテゴリ名から「Category:」を削除
+                const cleanCategory = category.replace(/^Category:/, '');
+                
+                // ノードとリンクを追加
+                graphData.nodes.push({ 
+                    id: category, 
+                    name: cleanCategory, 
+                    group: depth + 2,
+                    depth: depth + 1,
+                    href: `https://ja.wikipedia.org/wiki/${encodeURIComponent(category)}`
+                });
+                
+                graphData.links.push({ 
+                    source: keyword, 
+                    target: category, 
+                    value: 1 
+                });
+                
+                // 処理済みセットに追加
+                alreadySet.add(category);
+                
+                // 次の深さで再帰呼び出し
+                await buildCategoryTree(category, depth + 1, maxDepth);
+            }
+        }
+
+        // グラフを描画する関数
+        function drawGraph() {
+            // 既存のグラフをクリア
+            d3.select("#graph-container").html("");
+            
+            const width = document.getElementById('graph-container').clientWidth;
+            const height = document.getElementById('graph-container').clientHeight;
+            
+            // ツールチップの作成
+            const tooltip = d3.select("body").append("div")
+                .attr("class", "tooltip")
+                .style("opacity", 0);
+            
+            // SVG要素を作成
+            const svg = d3.select("#graph-container").append("svg")
+                .attr("width", width)
+                .attr("height", height)
+                .call(d3.zoom().on("zoom", (event) => {
+                    g.attr("transform", event.transform);
+                }));
+            
+            // メインのグループ要素
+            const g = svg.append("g");
+            
+            // 左から右へのレイアウトのためのフォースシミュレーション設定
+            simulation = d3.forceSimulation(graphData.nodes)
+                .force("link", d3.forceLink(graphData.links).id(d => d.id).distance(100))
+                .force("charge", d3.forceManyBody().strength(-300))
+                .force("center", d3.forceCenter(width / 2, height / 2))
+                // x方向のフォースを深さに応じて変更（左から右への配置）
+                .force("x", d3.forceX(d => 100 + (d.depth || 0) * 200).strength(0.5))
+                .force("y", d3.forceY(height / 2).strength(0.1));
+            
+            // リンク（辺）の描画
+            const link = g.append("g")
+                .attr("class", "links")
+                .selectAll("line")
+                .data(graphData.links)
+                .enter().append("line")
+                .attr("class", "link")
+                .attr("stroke-width", d => Math.sqrt(d.value));
+            
+            // ノード（頂点）の描画
+            const node = g.append("g")
+                .attr("class", "nodes")
+                .selectAll("g")
+                .data(graphData.nodes)
+                .enter().append("g")
+                .attr("class", "node")
+                .on("mouseover", function(event, d) {
+                    tooltip.transition()
+                        .duration(200)
+                        .style("opacity", .9);
+                    tooltip.html(d.id)
+                        .style("left", (event.pageX + 10) + "px")
+                        .style("top", (event.pageY - 28) + "px");
+                })
+                .on("mouseout", function(d) {
+                    tooltip.transition()
+                        .duration(500)
+                        .style("opacity", 0);
+                })
+                .on("click", function(event, d) {
+                    if (d.href) {
+                        window.open(d.href, '_blank');
+                    }
+                })
+                .call(d3.drag()
+                    .on("start", dragstarted)
+                    .on("drag", dragged)
+                    .on("end", dragended));
+            
+            // ノードの円を描画
+            node.append("circle")
+                .attr("r", d => 8 - d.depth)
+                .attr("fill", d => d3.schemeCategory10[d.group % 10]);
+            
+            // ノードのテキストを描画
+            node.append("text")
+                .attr("dx", 12)
+                .attr("dy", ".35em")
+                .text(d => d.name || d.id.replace(/^Category:/, ''));
+            
+            // シミュレーションの更新
+            simulation.on("tick", () => {
+                link
+                    .attr("x1", d => d.source.x)
+                    .attr("y1", d => d.source.y)
+                    .attr("x2", d => d.target.x)
+                    .attr("y2", d => d.target.y);
+                
+                node
+                    .attr("transform", d => `translate(${d.x},${d.y})`);
+            });
+            
+            // ドラッグ関連の関数
+            function dragstarted(event, d) {
+                if (!event.active) simulation.alphaTarget(0.3).restart();
+                d.fx = d.x;
+                d.fy = d.y;
+            }
+            
+            function dragged(event, d) {
+                d.fx = event.x;
+                d.fy = event.y;
+            }
+            
+            function dragended(event, d) {
+                if (!event.active) simulation.alphaTarget(0);
+                d.fx = null;
+                d.fy = null;
+            }
+        }
+
+        // ページロード時に初期キーワードでグラフを生成
+        window.onload = () => {
+            document.getElementById('generate').click();
+        };
+    </script>
+</body>
+</html>
