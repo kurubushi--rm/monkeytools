@@ -123,7 +123,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>テーママップ作成ツール</h1>
+        <h1>テーマグラフ作成ツール</h1>
         <div class="info-container">
             <div class="info-box">
                 <p>・<a href="https://ja.wikipedia.org">ウィキペディア</a>のカテゴリーデータを利用しています。</p>
@@ -163,7 +163,7 @@
             // 生成開始
             const generateButton = document.getElementById('generate');
             generateButton.disabled = true;
-            document.getElementById('status').textContent = `「${keyword}」のテーママップを生成中...`;
+            document.getElementById('status').textContent = `「${keyword}」のテーマグラフを生成中...`;
             
             // グラフデータをリセット
             graphData = { 
@@ -178,7 +178,7 @@
                 const finalKeyword = redirectKeyword || keyword;
                 
                 if (redirectKeyword) {
-                    document.getElementById('status').textContent = `「${keyword}」は「${redirectKeyword}」にリダイレクトされました。テーママップを生成中...`;
+                    document.getElementById('status').textContent = `「${keyword}」は「${redirectKeyword}」にリダイレクトされました。テーマグラフを生成中...`;
                     // ノードの更新
                     graphData.nodes[0].id = finalKeyword;
                     alreadySet.delete(keyword);
@@ -191,7 +191,7 @@
                 // グラフを描画
                 drawGraph();
                 
-                document.getElementById('status').textContent = `「${finalKeyword}」のテーママップが完成しました。`;
+                document.getElementById('status').textContent = `「${finalKeyword}」のテーマグラフが完成しました。`;
             } catch (error) {
                 console.error('エラー:', error);
                 document.getElementById('status').textContent = `エラーが発生しました: ${error.message}`;
