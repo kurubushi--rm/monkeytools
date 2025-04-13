@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>テーマグラフ作成ツール（読書猿）</title>
+    <title>テーママップ作成ツール - MediaWiki API版</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
     <style>
         body {
@@ -123,11 +123,12 @@
 </head>
 <body>
     <div class="container">
-        <h1>テーマグラフ作成ツール</h1>
+        <h1>テーママップ作成ツール - MediaWiki API版</h1>
         <div class="info-container">
             <div class="info-box">
-                <p>・<a href="https://ja.wikipedia.org">ウィキペディア</a>のカテゴリーデータを利用しています。</p>
-                <p>・データはMediaWiki APIから取得しています。</p>
+                <p># ウィキペディアのカテゴリーデータを利用しています。</p>
+                <p># データはMediaWiki APIから取得しています。</p>
+                <p># ノードをクリックすると、そのカテゴリを中心としたグラフを再生成します。</p>
             </div>
         </div>
         <div class="input-container">
@@ -138,9 +139,9 @@
                 <option value="3" selected>深さ: 3</option>
                 <option value="4">深さ: 4</option>
             </select>
-            <button id="generate">テーマグラフを生成</button>
+            <button id="generate">テーママップを生成</button>
         </div>
-        <div id="status">キーワードを入力して「テーマグラフを生成」ボタンをクリックしてください</div>
+        <div id="status">キーワードを入力して「テーママップを生成」ボタンをクリックしてください</div>
         <div id="graph-container"></div>
     </div>
 
@@ -163,7 +164,7 @@
             // 生成開始
             const generateButton = document.getElementById('generate');
             generateButton.disabled = true;
-            document.getElementById('status').textContent = `「${keyword}」のテーマグラフを生成中...`;
+            document.getElementById('status').textContent = `「${keyword}」のテーママップを生成中...`;
             
             // グラフデータをリセット
             graphData = { 
@@ -178,11 +179,17 @@
                 const finalKeyword = redirectKeyword || keyword;
                 
                 if (redirectKeyword) {
-                    document.getElementById('status').textContent = `「${keyword}」は「${redirectKeyword}」にリダイレクトされました。テーマグラフを生成中...`;
+                    document.getElementById('status').textContent = `「${keyword}」は「${redirectKeyword}」にリダイレクトされました。テーママップを生成中...`;
                     // ノードの更新
                     graphData.nodes[0].id = finalKeyword;
                     alreadySet.delete(keyword);
                     alreadySet.add(finalKeyword);
+                }
+                
+                // 履歴に追加
+                searchHistory.push(finalKeyword);
+                if (searchHistory.length > 10) {
+                    searchHistory.shift(); // 10件を超えたら古いものを削除
                 }
                 
                 // カテゴリツリーを生成
@@ -191,7 +198,7 @@
                 // グラフを描画
                 drawGraph();
                 
-                document.getElementById('status').textContent = `「${finalKeyword}」のテーマグラフが完成しました。`;
+                document.getElementById('status').textContent = `「${finalKeyword}」のテーママップが完成しました。クリックで他のカテゴリも探索できます。`;
             } catch (error) {
                 console.error('エラー:', error);
                 document.getElementById('status').textContent = `エラーが発生しました: ${error.message}`;
@@ -303,6 +310,9 @@
             return categoryList;
         }
 
+        // 履歴を管理する変数
+        let searchHistory = [];
+        
         // カテゴリツリーを再帰的に構築する関数
         async function buildCategoryTree(keyword, depth, maxDepth) {
             // 最大深さに達したら終了
@@ -355,11 +365,6 @@
             const width = document.getElementById('graph-container').clientWidth;
             const height = document.getElementById('graph-container').clientHeight;
             
-            // ツールチップの作成
-            const tooltip = d3.select("body").append("div")
-                .attr("class", "tooltip")
-                .style("opacity", 0);
-            
             // SVG要素を作成
             const svg = d3.select("#graph-container").append("svg")
                 .attr("width", width)
@@ -367,6 +372,14 @@
                 .call(d3.zoom().on("zoom", (event) => {
                     g.attr("transform", event.transform);
                 }));
+                
+            // ツールチップを削除（既存のツールチップがあれば）
+            d3.selectAll(".tooltip").remove();
+            
+            // ツールチップの作成
+            const tooltip = d3.select("body").append("div")
+                .attr("class", "tooltip")
+                .style("opacity", 0);
             
             // メインのグループ要素
             const g = svg.append("g");
@@ -396,6 +409,7 @@
                 .data(graphData.nodes)
                 .enter().append("g")
                 .attr("class", "node")
+                .style("cursor", "pointer")
                 .on("mouseover", function(event, d) {
                     tooltip.transition()
                         .duration(200)
@@ -404,15 +418,19 @@
                         .style("left", (event.pageX + 10) + "px")
                         .style("top", (event.pageY - 28) + "px");
                 })
-                .on("mouseout", function(d) {
+                .on("mouseout", function(event, d) {
                     tooltip.transition()
-                        .duration(500)
+                        .duration(200)
                         .style("opacity", 0);
                 })
                 .on("click", function(event, d) {
-                    if (d.href) {
-                        window.open(d.href, '_blank');
-                    }
+                    // ツールチップを完全に非表示にする
+                    tooltip.style("opacity", 0);
+                    
+                    // カテゴリを新しいキーワードとして設定し、グラフを再生成
+                    const categoryName = d.id.replace(/^Category:/, '');
+                    document.getElementById('keyword').value = categoryName;
+                    document.getElementById('generate').click();
                 })
                 .call(d3.drag()
                     .on("start", dragstarted)
@@ -461,7 +479,16 @@
             }
         }
 
-        // ページロード時に初期キーワードでグラフを生成
+                    // グラフ生成時にツールチップの問題を避けるためのクリーンアップ
+            document.addEventListener('click', function(event) {
+                // グラフの外をクリックしたらツールチップを非表示にする
+                const graphContainer = document.getElementById('graph-container');
+                if (!graphContainer.contains(event.target)) {
+                    d3.selectAll(".tooltip").style("opacity", 0);
+                }
+            });
+            
+            // ページロード時に初期キーワードでグラフを生成
         window.onload = () => {
             document.getElementById('generate').click();
         };
